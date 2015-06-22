@@ -46,7 +46,7 @@ public:
 	Variable var;
 	int type;
 	int direction;
-	std::vector<Variable> children;
+	std::vector<std::pair<Variable, float> > children;
 
 public:
 	Rule() {}

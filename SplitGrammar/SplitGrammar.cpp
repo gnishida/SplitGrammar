@@ -39,16 +39,20 @@ Rule::Rule(const std::string& rule_string) {
 	// children
 	bool end = false;
 	while (!end) {
-		index2 = rule_string.find("|", index);
-		if (index2 < 0) {
-			index2 = rule_string.find("}", index);
-			end = true;
-			if (index2 == -1) throw "Invalid rule: " + rule_string;
-		}
+		index2 = rule_string.find("(", index);
 		std::string child = trim(rule_string.substr(index, index2 - index));
-		children.push_back(child);
 
 		index = index2 + 1;
+		index2 = rule_string.find(")", index);
+		float ratio = std::atof(trim(rule_string.substr(index, index2 - index)).c_str());
+		children.push_back(std::make_pair(child, ratio));
+
+		index = rule_string.find("|", index2);
+		if (index < 0) {
+			break;
+		}
+
+		index++;
 	}
 }
 
@@ -79,20 +83,20 @@ SplitGrammar::SplitGrammar() {
 	terminals["Window1"] = Terminal("Window", glm::vec3(0, 0, 255));
 	terminals["Window2"] = Terminal("Window", glm::vec3(0, 128, 128));
 
-	rules["NT1"] = Rule("NT1 -> split(y) { Wall1 | NT2 | NT3 | Wall1 | NT4 | Wall1 }");
-	rules["NT2"] = Rule("NT2 -> repeat(y) {NT5 }");
-	rules["NT3"] = Rule("NT3 -> split(x) { NT6 | Wall1 | Window1 | Wall2 | Window1 | NT7 }");
-	rules["NT4"] = Rule("NT4 -> split(x) { NT6 | Wall2 | Wall1 | NT8 | Wall2 | Window2 | Wall1 | NT9 }");
-	rules["NT5"] = Rule("NT5 -> split(y) { NT10 | Wall1 }");
-	rules["NT6"] = Rule("NT6 -> split(x) { Wall1 | Window1 }");
-	rules["NT7"] = Rule("NT7 -> split(x) { Wall1 | Window2 | Wall2 | NT9 }");
-	rules["NT8"] = Rule("NT8 -> split(x) { Window1 | Wall1 | Window1 }");
-	rules["NT9"] = Rule("NT9 -> split(x) { Window1 | Wall1 }");
-	rules["NT10"] = Rule("NT10 -> split(x) { NT6 | Wall2 | NT8 | NT7 }");
+	rules["NT1"] = Rule("NT1 -> split(y) { Wall1(0.12) | NT2(0.48) | NT3(0.12) | Wall1(0.12) | NT4(0.12) | Wall1(0.04) }");
+	rules["NT2"] = Rule("NT2 -> repeat(y) {NT5(1.0) }");
+	rules["NT3"] = Rule("NT3 -> split(x) { NT6(0.12) | Wall1(0.15) | Window1(0.1) | Wall2(0.16) | Window1(0.1) | NT7(0.37) }");
+	rules["NT4"] = Rule("NT4 -> split(x) { NT6(0.12) | Wall2(0.1) | Wall1(0.05) | NT8(0.36) | Wall2(0.06) | Window2(0.1) | Wall1(0.06) | NT9(0.15) }");
+	rules["NT5"] = Rule("NT5 -> split(y) { NT10(0.5) | Wall1(0.5) }");
+	rules["NT6"] = Rule("NT6 -> split(x) { Wall1(0.3) | Window1(0.7) }");
+	rules["NT7"] = Rule("NT7 -> split(x) { Wall1(0.18) | Window2(0.25) | Wall2(0.18) | NT9(0.39) }");
+	rules["NT8"] = Rule("NT8 -> split(x) { Window1(0.27) | Wall1(0.46) | Window1(0.27) }");
+	rules["NT9"] = Rule("NT9 -> split(x) { Window1(0.63) | Wall1(0.27) }");
+	rules["NT10"] = Rule("NT10 -> split(x) { NT6(0.12) | Wall2(0.15) | NT8(0.36) | NT7(0.37) }");
 
 	// Facadeのサイズ
-	width = 100;
-	height = 100;
+	width = 200;
+	height = 200;
 }
 
 Model SplitGrammar::derive(int max_iterations) {
@@ -118,22 +122,30 @@ Model SplitGrammar::derive(int max_iterations) {
 
 			if (rule.type == Rule::TYPE_SPLIT) {
 				if (rule.direction == Rule::DIRECTION_X) {
-					float width = region.width / (float)rule.children.size();
-					float left = region.left;
+					float sum_width = 0;
 					for (int j = 0; j < rule.children.size(); ++j) {
-						auto inserted_model = model.insert(i + j, rule.children[j]);
-						inserted_model->region = Region(left, region.bottom, width, region.height);
+						//float width = region.width / (float)rule.children.size();
+						float width = region.width * rule.children[j].second;
+						if (j == rule.children.size() - 1) {
+							width = region.width - sum_width;
+						}
+						auto inserted_model = model.insert(i + j, rule.children[j].first);
+						inserted_model->region = Region(region.left + sum_width, region.bottom, width, region.height);
 
-						left += width;
+						sum_width += width;
 					}
 				} else {
-					float height = region.height / (float)rule.children.size();
-					float bottom = region.bottom;
+					float sum_height = 0;
 					for (int j = 0; j < rule.children.size(); ++j) {
-						auto inserted_model = model.insert(i + j, rule.children[j]);
-						inserted_model->region = Region(region.left, bottom, region.width, height);
+						//float height = region.height / (float)rule.children.size();
+						float height = region.height * rule.children[j].second;
+						if (j == rule.children.size() - 1) {
+							height = region.height - sum_height;
+						}
+						auto inserted_model = model.insert(i + j, rule.children[j].first);
+						inserted_model->region = Region(region.left, region.bottom + sum_height, region.width, height);
 
-						bottom += height;
+						sum_height += height;
 					}
 				}
 			} else if (rule.type == Rule::TYPE_REPEAT) {
@@ -141,25 +153,27 @@ Model SplitGrammar::derive(int max_iterations) {
 				int repetition = 2;
 
 				if (rule.direction == Rule::DIRECTION_X) {
-					float width = region.width / (float)repetition / (float)rule.children.size();
-					float left = region.left;
+					float sum_width = 0;
 					for (int j = 0; j < repetition; ++j) {
 						for (int k = 0; k < rule.children.size(); ++k) {
-							auto inserted_model = model.insert(i + j * rule.children.size() + k, rule.children[k]);
-							inserted_model->region = Region(left, region.bottom, width, region.height);
+							//float width = region.width / (float)repetition / (float)rule.children.size();
+							float width = region.width / (float)repetition * rule.children[k].second;
+							auto inserted_model = model.insert(i + j * rule.children.size() + k, rule.children[k].first);
+							inserted_model->region = Region(region.left + sum_width, region.bottom, width, region.height);
 
-							left += width;
+							sum_width += width;
 						}
 					}
 				} else {
-					float height = region.height / (float)repetition / (float)rule.children.size();
-					float bottom = region.bottom;
+					float sum_height = 0;
 					for (int j = 0; j < repetition; ++j) {
 						for (int k = 0; k < rule.children.size(); ++k) {
-							auto inserted_model = model.insert(i + j * rule.children.size() + k, rule.children[k]);
-							inserted_model->region = Region(region.left, bottom, region.width, height);
+							//float height = region.height / (float)repetition / (float)rule.children.size();
+							float height = region.height / (float)repetition * rule.children[k].second;
+							auto inserted_model = model.insert(i + j * rule.children.size() + k, rule.children[k].first);
+							inserted_model->region = Region(region.left, region.bottom + sum_height, region.width, height);
 
-							bottom += height;
+							sum_height += height;
 						}
 					}
 				}
